@@ -1,0 +1,149 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default Deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // A coach is authorized ONLY when users/{userId}/coachAccess/{coachUid}
+    // exists with status == 'authorized'. That doc is the single source of consent.
+    // The profile's authorizedCoachUid field is NOT consulted (it is just UI state).
+    function isAuthorizedCoach(userId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(userId)/coachAccess/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(userId)/coachAccess/$(request.auth.uid)).data.get('status', '') == 'authorized';
+    }
+
+    function optNum(d, k) {
+      return !(k in d) || ((d[k] is number) && d[k] == d[k] && d[k] > -100000 && d[k] < 100000);
+    }
+
+    // Optional string field with a length cap.
+    function optStr(d, k, n) {
+      return !(k in d) || (d[k] is string && d[k].size() <= n);
+    }
+
+    // Optional list field with a length cap.
+    function optList(d, k, n) {
+      return !(k in d) || (d[k] is list && d[k].size() <= n);
+    }
+
+    // Profile fields written by src/utils/cloudSync.ts (+ 'email' from firebase-blueprint.json).
+    function validProfile(d, uid) {
+      return d.keys().hasOnly([
+          'userId', 'displayName', 'email', 'role', 'programmeStartDate', 'currentPhase',
+          'timezone', 'authorizedCoachUid', 'updatedAt', 'weighIns', 'measurementHistory',
+          'startingWeightKg', 'proposedGoalWeightKg', 'bodyweightKg', 'heightCm', 'age',
+          'gender', 'trainingExperience', 'equipment', 'injuriesAndConstraints',
+          'dietaryExclusions', 'wakeTime', 'workTime', 'gymTime'
+        ])
+        && d.userId == uid
+        && optStr(d, 'displayName', 200)
+        && optStr(d, 'email', 320)
+        && (!('role' in d) || (d.role is string && d.role in ['owner', 'coach']))
+        && optStr(d, 'programmeStartDate', 40)
+        && optStr(d, 'currentPhase', 20)
+        && optStr(d, 'timezone', 100)
+        && optStr(d, 'authorizedCoachUid', 128)
+        && optStr(d, 'updatedAt', 60)
+        && optStr(d, 'gender', 20)
+        && optStr(d, 'trainingExperience', 5000)
+        && optStr(d, 'equipment', 5000)
+        && optStr(d, 'injuriesAndConstraints', 10000)
+        && optStr(d, 'dietaryExclusions', 10000)
+        && optStr(d, 'wakeTime', 40)
+        && optStr(d, 'workTime', 100)
+        && optStr(d, 'gymTime', 100)
+        && optNum(d, 'age')
+        && optNum(d, 'heightCm')
+        && optNum(d, 'startingWeightKg')
+        && optNum(d, 'proposedGoalWeightKg')
+        && optNum(d, 'bodyweightKg')
+        && optList(d, 'weighIns', 3000)
+        && optList(d, 'measurementHistory', 3000);
+    }
+
+    // Logs are free-form (shape evolves with the app); only sanity-bound them.
+    function validLog(d) {
+      return d.keys().size() <= 60
+        && (!('updatedAt' in d) || (d.updatedAt is string && d.updatedAt.size() <= 60));
+    }
+
+    function validCoachAccess(d, userId, coachUid) {
+      return d.keys().hasOnly(['coachUid', 'ownerUid', 'status', 'grantedAt', 'revokedAt'])
+        && d.coachUid == coachUid
+        && d.ownerUid == userId
+        && d.status in ['authorized', 'revoked']
+        && (!('grantedAt' in d) || (d.grantedAt is string && d.grantedAt.size() <= 60))
+        && (!('revokedAt' in d) || (d.revokedAt is string && d.revokedAt.size() <= 60));
+    }
+
+    // COACH SUMMARY: the ONLY profile-derived data a coach may read.
+    // Explicit allowlist the owner consents to share:
+    //   displayName, programmeStartDate, currentPhase, timezone, bodyweightKg, startingWeightKg, updatedAt
+    // Deliberately NOT shared: injuries, dietary exclusions, age, gender, height, goal weight,
+    // equipment, schedule, email, weigh-in / measurement history.
+    function validCoachSummary(d) {
+      return d.keys().hasOnly([
+          'displayName', 'programmeStartDate', 'currentPhase', 'timezone',
+          'bodyweightKg', 'startingWeightKg', 'updatedAt'
+        ])
+        && optStr(d, 'displayName', 200)
+        && optStr(d, 'programmeStartDate', 40)
+        && (!('currentPhase' in d) || d.currentPhase in ['phase1', 'phase2', 'phase3'])
+        && optStr(d, 'timezone', 100)
+        && optNum(d, 'bodyweightKg')
+        && optNum(d, 'startingWeightKg')
+        && optStr(d, 'updatedAt', 60);
+    }
+
+    // User Profile: PRIVATE, owner only (coaches never read this doc).
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && validProfile(request.resource.data, request.auth.uid);
+      allow update: if isOwner(userId) && validProfile(request.resource.data, request.auth.uid);
+      allow delete: if isOwner(userId);
+
+      // Shared summary (owner writes; consenting coach reads)
+      match /coachSummary/{docId} {
+        allow get: if isOwner(userId) || (docId == 'current' && isAuthorizedCoach(userId));
+        allow list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && docId == 'current' && validCoachSummary(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      // Daily Logs subcollection
+      match /dailyLogs/{date} {
+        allow get, list: if isOwner(userId) || isAuthorizedCoach(userId);
+        allow create, update: if isOwner(userId) && validLog(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      // Workout Logs subcollection
+      match /workoutLogs/{dayKey} {
+        allow get, list: if isOwner(userId) || isAuthorizedCoach(userId);
+        allow create, update: if isOwner(userId) && validLog(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      // Coach Access subcollection
+      match /coachAccess/{coachUid} {
+        allow get: if isOwner(userId) || (isSignedIn() && request.auth.uid == coachUid);
+        allow list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && validCoachAccess(request.resource.data, userId, coachUid);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}

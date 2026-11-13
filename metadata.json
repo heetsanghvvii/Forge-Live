@@ -1,0 +1,8 @@
+{
+  "name": "Forge",
+  "description": "Mobile-first fitness companion: daily logging, workouts, nutrition and progress, with private cloud backup and optional read-only coach sharing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with private health attributes, starting metrics, and coach authorization",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 200 },
+        "role": { "type": "string", "enum": ["owner", "coach"] },
+        "startingWeightKg": { "type": "number" },
+        "proposedGoalWeightKg": { "type": "number" },
+        "heightCm": { "type": "number" },
+        "age": { "type": "number" },
+        "trainingExperience": { "type": "string", "maxLength": 100 },
+        "equipment": { "type": "string", "maxLength": 200 },
+        "injuriesAndConstraints": { "type": "string", "maxLength": 500 },
+        "dietaryExclusions": { "type": "string", "maxLength": 500 },
+        "wakeTime": { "type": "string", "maxLength": 20 },
+        "workTime": { "type": "string", "maxLength": 50 },
+        "gymTime": { "type": "string", "maxLength": 50 },
+        "programmeStartDate": { "type": "string", "maxLength": 20 },
+        "currentPhase": { "type": "string", "enum": ["phase1", "phase2", "phase3"] },
+        "timezone": { "type": "string", "maxLength": 50 },
+        "authorizedCoachUid": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["userId", "role"]
+    },
+    "DailyLogRecord": {
+      "title": "DailyLogRecord",
+      "description": "Daily nutrition, habits, subjective biofeedback, and notes",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "maxLength": 10 },
+        "dayNumber": { "type": "number" },
+        "phase": { "type": "string", "maxLength": 20 },
+        "isRest": { "type": "boolean" },
+        "isSkipped": { "type": "boolean" },
+        "isModified": { "type": "boolean" },
+        "checklist": { "type": "object" },
+        "macrosPlanned": { "type": "object" },
+        "macrosActual": { "type": "object" },
+        "waterPlannedMl": { "type": "number" },
+        "waterActualMl": { "type": "number" },
+        "stepsPlanned": { "type": "number" },
+        "stepsActual": { "type": "number" },
+        "sleepHours": { "type": "number" },
+        "energyRating": { "type": "number" },
+        "hungerRating": { "type": "number" },
+        "sorenessRating": { "type": "number" },
+        "painOrIllnessNotes": { "type": "string", "maxLength": 1000 },
+        "generalNotes": { "type": "string", "maxLength": 1000 },
+        "weighInKg": { "type": "number" },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["date"]
+    },
+    "WorkoutLogRecord": {
+      "title": "WorkoutLogRecord",
+      "description": "Granular workout log including exercises, sets, weights, effort, and modifications",
+      "type": "object",
+      "properties": {
+        "dayKey": { "type": "string", "maxLength": 20 },
+        "date": { "type": "string", "maxLength": 10 },
+        "phase": { "type": "string", "maxLength": 20 },
+        "dayNumber": { "type": "number" },
+        "workoutType": { "type": "string", "maxLength": 50 },
+        "isRest": { "type": "boolean" },
+        "isSkipped": { "type": "boolean" },
+        "isModified": { "type": "boolean" },
+        "exercises": { "type": "array" },
+        "totalVolumeKg": { "type": "number" },
+        "cardioMinutes": { "type": "number" },
+        "cardioType": { "type": "string", "maxLength": 50 },
+        "effortRpe": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["dayKey"]
+    },
+    "CoachAccess": {
+      "title": "CoachAccess",
+      "description": "Authorization link allowing a specific coach to read owner data",
+      "type": "object",
+      "properties": {
+        "coachUid": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["authorized", "revoked"] },
+        "grantedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["coachUid", "ownerUid", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Root user profile document"
+    },
+    "/users/{userId}/dailyLogs/{date}": {
+      "schema": "DailyLogRecord",
+      "description": "Daily tracking log per date"
+    },
+    "/users/{userId}/workoutLogs/{dayKey}": {
+      "schema": "WorkoutLogRecord",
+      "description": "Individual workout session record per day"
+    },
+    "/users/{userId}/coachAccess/{coachUid}": {
+      "schema": "CoachAccess",
+      "description": "Coach permissions registry for this owner"
+    }
+  }
+}
